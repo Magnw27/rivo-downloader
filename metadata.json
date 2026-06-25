@@ -1,0 +1,6 @@
+{
+  "name": "Rivo Downloader",
+  "description": "Aplikasi pengunduh video & audio resolusi tinggi untuk TikTok, YouTube, dan Instagram tanpa iklan dengan riwayat unduhan lokal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
