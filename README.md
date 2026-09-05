@@ -1,20 +1,33 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Rivo Downloader
 
-# Run and deploy your AI Studio app
+A clean, animated media downloader interface built with React, Vite, Tailwind CSS, Motion, and an Express API.
 
-This contains everything you need to run your app locally.
+## What changed in v2
 
-View your app in AI Studio: https://ai.studio/apps/987f308c-b21b-42b2-a71b-935681312da3
+- Premium dark glassmorphism UI with animated ambient background.
+- Smooth entrance, result, history, and micro-interaction animations.
+- Responsive layout tuned for mobile, tablet, and desktop.
+- Improved URL validation and friendlier error states.
+- Clipboard paste + `Ctrl/Cmd + K` focus shortcut.
+- Searchable local download history.
+- Re-download, reload, copy-link, and delete actions.
+- Reduced-motion support for accessibility.
+- Updated branding, metadata, and package name/version.
 
-## Run Locally
+## Run locally
 
-**Prerequisites:**  Node.js
+```bash
+npm install
+npm run dev
+```
 
+Set `GEMINI_API_KEY` when your backend needs Gemini metadata processing.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Build
+
+```bash
+npm run build
+npm start
+```
+
+> Use the downloader only for media you are allowed to download and in accordance with the source platform's terms.
