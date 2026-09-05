@@ -1,4 +1,4 @@
-# Rivo Downloader
+# Rivotik
 
 A clean, animated media downloader interface built with React, Vite, Tailwind CSS, Motion, and an Express API.
 
@@ -13,6 +13,7 @@ A clean, animated media downloader interface built with React, Vite, Tailwind CS
 - Re-download, reload, copy-link, and delete actions.
 - Reduced-motion support for accessibility.
 - Updated branding, metadata, and package name/version.
+- Removed Gemini/AI service requirements from the backend.
 
 ## Run locally
 
@@ -20,8 +21,6 @@ A clean, animated media downloader interface built with React, Vite, Tailwind CS
 npm install
 npm run dev
 ```
-
-Set `GEMINI_API_KEY` when your backend needs Gemini metadata processing.
 
 ## Build
 

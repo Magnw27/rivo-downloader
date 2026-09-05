@@ -1,25 +1,11 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 const app = express();
 const PORT = 3000;
 
 app.use(express.json());
-
-// Initialize Gemini SDK with telemetry User-Agent as instructed in the gemini-api skill
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    }
-  }
-});
 
 // Helper: Determine platform from URL
 function detectPlatform(url: string): "tiktok" | "youtube" | "instagram" | "generic" {
@@ -41,9 +27,6 @@ app.post("/api/download", async (req, res) => {
   const platform = detectPlatform(url);
   const isAudio = format === "mp3";
 
-  // Define some high-quality royalty free/educational streaming sources to use as the bulletproof fallback files
-  // These files are real, playable, and downloadable, ensuring "No Mock Data" constraints are fully satisfied even if 
-  // platform protection limits raw stream extraction.
   const fallbackVideoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4";
   const fallbackAudioUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
 
@@ -56,7 +39,7 @@ app.post("/api/download", async (req, res) => {
   try {
     // ---- METHOD A: Platform-Specific Open APIs ----
 
-    // A1. TIKTOK: Tikwm is exceptionally reliable and completely free
+    // A1. TIKTOK
     if (platform === "tiktok") {
       try {
         const tikResponse = await fetch(`https://www.tikwm.com/api/?url=${encodeURIComponent(url)}`);
@@ -71,7 +54,7 @@ app.post("/api/download", async (req, res) => {
           if (isAudio) {
             downloadUrl = tikData.data.music || tikData.data.play;
           } else {
-            downloadUrl = tikData.data.play; // direct high-res MP4
+            downloadUrl = tikData.data.play;
           }
         }
       } catch (err) {
@@ -82,10 +65,7 @@ app.post("/api/download", async (req, res) => {
     // ---- METHOD B: Cobalt API (For Youtube, Instagram, and general social sites) ----
     if (!downloadUrl) {
       try {
-        // We use cobalt's official api endpoint which supports direct JSON extraction
         const cobaltUrl = "https://api.cobalt.tools/api/json";
-        
-        // Map quality to cobalt videoQuality values: 144, 240, 360, 480, 720, 1080, 1440, 2160, max
         let cobaltQuality = "720";
         if (quality === "high") cobaltQuality = "1080";
         if (quality === "low") cobaltQuality = "480";
@@ -107,7 +87,6 @@ app.post("/api/download", async (req, res) => {
 
         if (response.ok) {
           const cobaltData = await response.json();
-          // Cobalt returns stream link in 'url' or a list in 'picker'
           if (cobaltData.url) {
             downloadUrl = cobaltData.url;
           } else if (cobaltData.picker && cobaltData.picker.length > 0) {
@@ -119,11 +98,10 @@ app.post("/api/download", async (req, res) => {
       }
     }
 
-    // ---- METHOD C: Smart HTML parsing & Gemini-powered metadata/stream locator ----
-    // If we don't have downloadUrl or if we want to enrich details
+    // ---- METHOD C: Lightweight HTML metadata parsing ----
+    // No external AI service or API key is required here.
     if (!downloadUrl || title === "Media Download") {
       try {
-        // Fetch target webpage to parse OpenGraph meta tags
         const pageRes = await fetch(url, {
           headers: {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -132,74 +110,50 @@ app.post("/api/download", async (req, res) => {
 
         if (pageRes.ok) {
           const htmlText = await pageRes.text();
-          
-          // Fast local regex for title and image metadata
-          const ogTitleMatch = htmlText.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) || 
-                               htmlText.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i);
-          const ogImageMatch = htmlText.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
-                               htmlText.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
-          const ogVideoMatch = htmlText.match(/<meta[^>]+property=["']og:video["'][^>]+content=["']([^"']+)["']/i);
 
-          if (ogTitleMatch) title = ogTitleMatch[1];
-          if (ogImageMatch) cover = ogImageMatch[1];
-          if (ogVideoMatch && !downloadUrl) downloadUrl = ogVideoMatch[1];
+          const metaContent = (property: string) => {
+            const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const patterns = [
+              new RegExp(`<meta[^>]+property=["']${escaped}["'][^>]+content=["']([^"']+)["']`, "i"),
+              new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+property=["']${escaped}["']`, "i"),
+              new RegExp(`<meta[^>]+name=["']${escaped}["'][^>]+content=["']([^"']+)["']`, "i"),
+              new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+name=["']${escaped}["']`, "i"),
+            ];
 
-          // If Gemini API Key is available, use it to intelligently parse scripts and state JSON inside the HTML 
-          // to find direct stream links, or structure the metadata beautifully.
-          if (process.env.GEMINI_API_KEY) {
-            // Send HTML snippet to Gemini to locate direct URLs and metadata
-            const prompt = `Analisis cuplikan HTML dari link media berikut: "${url}". 
-Ekstrak informasi meta berikut dalam format JSON murni:
-{
-  "title": "judul video/audio",
-  "author": "nama pembuat atau channel",
-  "cover": "url cover gambar utama jika ada",
-  "duration": "durasi video (e.g. 3:45)",
-  "directMediaUrl": "cari apakah ada direct link file .mp4, .m3u8, atau stream video di dalam script"
-}
-
-Berikut adalah potongan tag head / script dari halaman tersebut:
-${htmlText.substring(0, 18000)}
-
-Kembalikan hanya JSON murni, tanpa markdown formatting, tanpa penjelasan tambahan.`;
-
-            const geminiResponse = await ai.models.generateContent({
-              model: "gemini-3.5-flash",
-              contents: prompt,
-              config: {
-                responseMimeType: "application/json"
-              }
-            });
-
-            if (geminiResponse.text) {
-              const geminiData = JSON.parse(geminiResponse.text.trim());
-              if (geminiData.title) title = geminiData.title;
-              if (geminiData.author) author = geminiData.author;
-              if (geminiData.cover && geminiData.cover.startsWith("http")) cover = geminiData.cover;
-              if (geminiData.duration) duration = geminiData.duration;
-              if (geminiData.directMediaUrl && geminiData.directMediaUrl.startsWith("http") && !downloadUrl) {
-                downloadUrl = geminiData.directMediaUrl;
-              }
+            for (const pattern of patterns) {
+              const match = htmlText.match(pattern);
+              if (match?.[1]) return match[1].trim();
             }
+            return "";
+          };
+
+          const localTitle = metaContent("og:title") || metaContent("twitter:title");
+          const localImage = metaContent("og:image") || metaContent("twitter:image");
+          const localVideo = metaContent("og:video") || metaContent("og:video:url");
+          const localAuthor = metaContent("author") || metaContent("article:author");
+          const localDuration = metaContent("video:duration");
+
+          if (localTitle) title = localTitle;
+          if (localImage) cover = localImage;
+          if (localAuthor) author = localAuthor;
+          if (localDuration && /^\d+$/.test(localDuration)) {
+            const totalSeconds = Number(localDuration);
+            duration = `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
           }
+          if (localVideo && !downloadUrl) downloadUrl = localVideo;
         }
       } catch (err) {
-        console.warn("HTML and Gemini extraction failed", err);
+        console.warn("HTML metadata extraction failed", err);
       }
     }
 
     // ---- STEP D: Fallback Resolution & Formatting ----
-    // If no direct download URL could be obtained due to server blocks or rate limits,
-    // we fallback to our stable playable video/audio URLs with real parsed metadata.
-    // This provides a high-quality download experience.
     let isFallback = false;
     if (!downloadUrl) {
       downloadUrl = isAudio ? fallbackAudioUrl : fallbackVideoUrl;
       isFallback = true;
     }
 
-    // Make downloadUrl go through our server-side proxy to download cleanly without CORS issues.
-    // This allows us to inject custom filename and correct headers.
     const cleanFilename = `${title.replace(/[^a-zA-Z0-9\s-_]/g, "").substring(0, 40)}.${isAudio ? "mp3" : "mp4"}`;
     const finalProxyUrl = `/api/proxy?url=${encodeURIComponent(downloadUrl)}&filename=${encodeURIComponent(cleanFilename)}`;
 
@@ -227,7 +181,6 @@ Kembalikan hanya JSON murni, tanpa markdown formatting, tanpa penjelasan tambaha
 });
 
 // 2. High-Performance Server-Side Stream Proxy
-// Bypasses CORS and triggers clean file attachment download in the user's browser
 app.get("/api/proxy", async (req, res) => {
   const targetUrl = req.query.url as string;
   const filename = (req.query.filename as string) || "download.mp4";
@@ -248,7 +201,6 @@ app.get("/api/proxy", async (req, res) => {
       throw new Error(`Target server responded with ${fetchResponse.status}`);
     }
 
-    // Set standard attachment response headers
     const contentType = fetchResponse.headers.get("content-type") || "application/octet-stream";
     res.setHeader("Content-Type", contentType);
     res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
@@ -258,7 +210,6 @@ app.get("/api/proxy", async (req, res) => {
       res.setHeader("Content-Length", contentLength);
     }
 
-    // Use Web Streams API reader to pipe chunks efficiently
     if (fetchResponse.body) {
       const reader = fetchResponse.body.getReader();
       while (true) {
@@ -272,7 +223,6 @@ app.get("/api/proxy", async (req, res) => {
     }
   } catch (err: any) {
     console.error("Proxy error:", err);
-    // Redirect to the direct URL as a safe fallback if streaming fails
     res.redirect(targetUrl);
   }
 });
@@ -299,7 +249,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`[Media Downloader Server] running on http://localhost:${PORT}`);
+    console.log(`[Rivotik Server] running on http://localhost:${PORT}`);
   });
 }
 
